@@ -1,163 +1,116 @@
-
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <pthread.h>
+#include <time.h>
 
-typedef struct index{
-	int j_index;
-	int i_index;
-}index;
-
-typedef struct data_set {
-	int start_index;
-	int end_index;
-	int* data;
-}data_set;
-
-
-void swap(int* a, int* b)
-{
-	int t = *a;
-	*a = *b;
-	*b = t;
-}
-
-
-index quick_sort(int* s_arr, int first, int last)
-{
-    	int i = first, j = last, pivot = s_arr[(first + last) / 2];
+pthread_mutex_t mutex;
  
-    	do {
-        	while (s_arr[i] < pivot) i++;
-        	while (s_arr[j] > pivot) j--;
- 
-        	if(i <= j) {
-            		swap(&s_arr[i], &s_arr[j]);
-            		i++;
-            		j--;
-        	}
-    	} while (i <= j);
-	index lr;
-	lr.j_index = j;
-	lr.i_index = i;
-	return lr;
+int number_threads;
+
+typedef struct quicksort_p {
+	int * arr;
+	int low;
+	int high;
+}quicksort_parameters;
+
+void swap(int * a, int * b) { 
+	int t = * a;
+	* a = * b;
+	* b = t;
+}
+
+int partition(int * arr, int low, int high) {
+	int pivot = arr[high];
+	int s = low;
+	for (int i = low; i < high; i++) {
+        	if (arr[i] <= pivot) {
+      			swap(&arr[i], &arr[s]);
+      			s++;
+    		}
+  	}
+  	swap(&arr[s], &arr[high]);
+  	return s;
+}
+
+void quicksort(int * arr, int low, int high) { 
+	if (low < high) {
+    		int pivot = partition(arr, low, high);
+    		quicksort(arr, low, pivot - 1);
+    		quicksort(arr, pivot + 1, high);
+  	}
 }
 
 
-void* sorted(void* data)
-{
+void quicksort_parallel(void * initialValues) {
+	quicksort_parameters * parameters = initialValues;
+	int * arr = parameters -> arr;
+	int low = parameters -> low;
+	int high = parameters -> high;
+	if (low >= high) {
+    		return;
+  	}
 
-	data_set* info = (data_set*)data;
+  	int pivot = partition(arr, low, high);
 
+  	pthread_mutex_lock(&mutex);
+  	int a = number_threads > 0; 
+  	if (a) {
+    		number_threads--;
+  	}
+  	pthread_mutex_unlock(&mutex);
 
-	int left_index, right_index;
-	index q;
-
-	left_index = info->start_index;
-	right_index = info->end_index;
-
-	if (left_index < right_index) {
-
-		pthread_attr_t attr;
-		pthread_t first_thread;
-		pthread_t second_thread;
-
-		data_set info1;
-		data_set info2;
-
-		info1.data = info->data;
-		info2.data = info->data;
-
-
-		pthread_attr_init(&attr);
-
-
-		pthread_attr_setdetachstate(
-			&attr, PTHREAD_CREATE_JOINABLE);
-
-
-		q = quick_sort(info->data,left_index,right_index);
-		int i = q.i_index;
-		int j = q.j_index;
-		info1.start_index = left_index;
-		info1.end_index = j;
-
-
-		if (pthread_create(&first_thread,&attr, sorted,&info1)) {
-			printf("222Error in creating thread\n");
-
-
-			exit(-1);
-		}
-
-		info2.start_index = i;
-		info2.end_index = right_index;
-
-
-		if (pthread_create(&second_thread,&attr, sorted,&info2)) {
-			printf("333Error in creating thread\n");
-
-
-			exit(-1);
-		}
-
-		pthread_join(first_thread, NULL);
-		pthread_join(second_thread, NULL);
-	}
-
-	return NULL;
+  	if (!a) { 
+    		quicksort(arr, low, pivot - 1);
+    		quicksort(arr, pivot + 1, high);
+    		return;
+  	}
+  	quicksort_parameters thread_param = {
+    		arr,
+    		low,
+    		pivot - 1
+  	};
+  	pthread_t thread;
+  	pthread_create(&thread, NULL, quicksort_parallel, & thread_param);
+  	quicksort_parameters param = {
+    		arr,
+    		pivot + 1,
+    		high
+  	};
+  	quicksort_parallel(&param);
+  	pthread_join(thread, NULL);
 }
 
-int main()
-{
+int main(int argc, char ** argv) {
+	if (argc != 2) {
+    		perror("Не указано кол-во потоков \n");
+    		return 1;
+  	}
 
-	int N;
+  	number_threads = strtol(argv[1], NULL, 10);
 
-	data_set info;
+  	int size; 
+  	scanf("%d", &size);
 
-	printf("Enter number of elements in the array: \n");
-	scanf("%d",&N);
+  	int * elements = malloc(size * sizeof(int)); 
 
-
-	int A[N];
-
-	printf("Enter the array: \n");
-	for (int i = 0; i < N; i++) {
-		scanf("%d",&A[i]);
-	}
-
-
-	info.data = A;
-	info.start_index = 0;
-	info.end_index = N - 1;
-
-
-	pthread_t thread_id;
-
-
-	if (pthread_create(&thread_id, NULL,sorted,&info)) {
-		printf("!!Error in creating thread\n");
-
-		exit(-1);
-	}
-
-	int r1 = pthread_join(thread_id, NULL);
-
-
-	if (r1) {
-		printf("123Error in joining thread\n");
-
-		exit(-1);
-	}
-
-	printf("Sorted Array is: \n");
-
-	for (int i = 0; i < N; i++) {
-		printf("%d ",A[i]);
-	}
-
-	pthread_exit(NULL);
-
-	return 0;
+  	for (int i = 0; i < size; i++) {
+    		//scanf("%d", & elements[i]);
+    		elements[i] = rand() % 1000;
+  	}
+  	quicksort_parameters start_param = {
+    		elements,
+    		0,
+    		size - 1
+  	};
+	clock_t start, end;
+	double cpu_time_used;
+	start = clock();
+  	quicksort_parallel(&start_param);
+  	//for (int i = 0; i < size; i++) {
+   	//	printf("%d ", elements[i]);
+  	//}
+  	end = clock();
+  	cpu_time_used = ((double)(end - start));
+  	printf("time: %lf\n",cpu_time_used);
+  	free(elements);
 }
-
